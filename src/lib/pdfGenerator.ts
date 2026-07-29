@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import JSZip from 'jszip';
+import type { HighlightProposal } from './highlightRules';
 import type {
   EmployeeCategory,
   ManagedUser,
@@ -13,6 +14,12 @@ import type {
 
 const MARGIN = 3;
 //const COLUMN_WIDTH_ROW_LABELS = 50;
+
+/** Review comments drawn below highlighted descriptions in the pivot table. */
+const NOTE_FONT_SIZE = 8;
+const NOTE_LINE_HEIGHT = 3.2;
+/** Approximate characters that fit per note line at NOTE_FONT_SIZE. */
+const NOTE_CHARS_PER_LINE = 90;
 
 const DEFAULT_FULL_TIME_SALARIED = new Set([
   'Joe Prevendar',
@@ -196,6 +203,20 @@ function isTravelOnSite(description: string): boolean {
   if (d.includes('in-office') || d.includes('in office') || /\bin\s+the\s+office\b/.test(d)) return false;
   if (d.includes('worked in the office') || d.includes('shop and office')) return false;
   if (d.includes('no miles required') || d.includes('there is no miles required')) return false;
+
+  // Personal trips (restaurant, lunch, etc.) do not need miles.
+  if (
+    /\brestaurants?\b/i.test(d) ||
+    /\brestraunts?\b/i.test(d) ||
+    /\bresturants?\b/i.test(d) ||
+    /\b(?:lunch|dinner|breakfast|brunch)\b/i.test(d) ||
+    /\b(?:cafe|coffee\s+shop|starbucks)\b/i.test(d) ||
+    /\bpersonal\s+(?:errand|trip|time|business)\b/i.test(d) ||
+    /\bwent\s+(?:home|to\s+home)\b/i.test(d) ||
+    /\b(?:grocery|groceries|bank|gym)\b/i.test(d)
+  ) {
+    return false;
+  }
 
   const planningPatterns = [
     /\bwill\s+(schedule|go|visit|travel)\b/,
@@ -957,11 +978,113 @@ function buildReportTitle(pivot: PivotData, revNumber: number): string {
   return `${month} REV${revNumber} PRINTED ${printedStr}`;
 }
 
+function proposalMatchesRow(
+  proposal: HighlightProposal,
+  row: PivotRow | null,
+): boolean {
+  if (!row || row.isEmployeeTotal) return false;
+  const label = row.label.trim();
+  const matched = proposal.matchedText.trim();
+  if (!label || !matched) return false;
+  return (
+    label === matched ||
+    label.includes(matched) ||
+    matched.includes(label) ||
+    label.replace(/^\s+/, '') === matched
+  );
+}
+
+/** Yellow-highlight only the trigger sentence inside a wrapped label cell. */
+function drawPhraseHighlightsInCell(
+  doc: jsPDF,
+  cell: { x: number; y: number; width: number; height: number },
+  displayText: string,
+  phrases: string[],
+  fontSize = 9,
+): { phrase: string; x: number; y: number; width: number }[] {
+  const found: { phrase: string; x: number; y: number; width: number }[] = [];
+  if (!phrases.length) return found;
+
+  const padding = 2;
+  const maxWidth = Math.max(10, cell.width - padding * 2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(fontSize);
+  const lineHeight = fontSize * 0.4;
+  const lines = doc.splitTextToSize(displayText, maxWidth) as string[];
+
+  // Map each wrapped line back to offsets in displayText
+  const lineRanges: { line: string; start: number; end: number }[] = [];
+  let searchPos = 0;
+  for (const line of lines) {
+    let idx = displayText.indexOf(line, searchPos);
+    if (idx < 0) {
+      // Whitespace normalization fallback
+      const collapsed = line.trim();
+      idx = collapsed
+        ? displayText.toLowerCase().indexOf(collapsed.toLowerCase(), searchPos)
+        : searchPos;
+      if (idx < 0) idx = searchPos;
+    }
+    lineRanges.push({ line, start: idx, end: idx + line.length });
+    searchPos = idx + line.length;
+  }
+
+  for (const phrase of phrases) {
+    if (!phrase.trim()) continue;
+    const lowerFull = displayText.toLowerCase();
+    const lowerPhrase = phrase.toLowerCase();
+    let phraseStart = lowerFull.indexOf(lowerPhrase);
+    // Indent in displayText may shift phrase — also try without leading indent spaces
+    if (phraseStart < 0) {
+      phraseStart = lowerFull.indexOf(lowerPhrase.trim());
+    }
+    if (phraseStart < 0) continue;
+    const phraseEnd = phraseStart + phrase.length;
+
+    let cursorY = cell.y + padding + lineHeight * 0.85;
+    let firstHit: { phrase: string; x: number; y: number; width: number } | null =
+      null;
+
+    for (const range of lineRanges) {
+      const overlapStart = Math.max(range.start, phraseStart);
+      const overlapEnd = Math.min(range.end, phraseEnd);
+      if (overlapStart < overlapEnd) {
+        const localStart = overlapStart - range.start;
+        const localEnd = overlapEnd - range.start;
+        const before = range.line.slice(0, localStart);
+        const matched = range.line.slice(localStart, localEnd);
+        const x0 = cell.x + padding + doc.getTextWidth(before);
+        const w = Math.max(doc.getTextWidth(matched), 2);
+        doc.setFillColor(255, 242, 0);
+        doc.rect(
+          x0 - 0.2,
+          cursorY - lineHeight + 0.7,
+          w + 0.4,
+          lineHeight,
+          'F',
+        );
+        doc.setTextColor(0, 0, 0);
+        doc.text(matched, x0, cursorY);
+        if (!firstHit) {
+          firstHit = { phrase: matched, x: x0, y: cursorY, width: w };
+        }
+      }
+      cursorY += lineHeight;
+      if (cursorY > cell.y + cell.height) break;
+    }
+
+    if (firstHit) found.push(firstHit);
+  }
+
+  return found;
+}
+
 export async function generatePdfsZip(
   pivot: PivotData,
   zipFilename = 'time-reports.zip',
   revNumber = 1,
-  managedUsers: ManagedUser[] = []
+  managedUsers: ManagedUser[] = [],
+  acceptedHighlights: HighlightProposal[] = [],
 ): Promise<void> {
   const dates = pivot.dates;
   const numDateCols = dates.length;
@@ -977,6 +1100,11 @@ export async function generatePdfsZip(
     const reportCard = computeReportCard(sectionRows, dates, name, categorySets);
     const reportTitle = buildReportTitle(pivot, revNumber);
     drawReportCardPage(doc, name, reportCard, logo, dates, categorySets);
+
+    const employeeHighlights = acceptedHighlights.filter(
+      (h) => h.employeeName === name && h.status === 'accepted',
+    );
+    const usedHighlightIds = new Set<string>();
 
     doc.addPage('a4', 'landscape');
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -1087,55 +1215,117 @@ const columnStyles = {
           if (pr?.indentLevel === 1) {
             data.cell.styles.fontStyle = 'bold';
           }
+          // Do not yellow-fill the whole cell — phrase highlight is drawn later
+          const matchedHighlights = pr
+            ? employeeHighlights.filter((h) => proposalMatchesRow(h, pr))
+            : [];
+          if (matchedHighlights.length > 0 && data.column.index === 0) {
+            const commentLineEstimate = matchedHighlights.reduce((sum, h) => {
+              return (
+                sum + Math.max(1, Math.ceil(h.comment.length / NOTE_CHARS_PER_LINE))
+              );
+            }, 0);
+            // Blank lines reserve a separate area below the description.
+            for (let i = 0; i < commentLineEstimate + 1; i++) {
+              data.cell.text.push(' ');
+            }
+          }
         }
         if (data.section === 'head') {
           data.cell.styles.halign = 'center';
           if (data.column.index >= 1) {
-          //  (data.cell as { text?: string[] }).text = [];
-			  data.cell.text = ['']; 
+            data.cell.text = [''];
           }
         }
       },
-	  
-	  
-	  
-	  didDrawCell: (data) => {
-  if (data.section === 'head' && data.column.index >= 1) {
-    const colIdx = data.column.index;
-    const label = (headerRow[colIdx] ?? '') as string;
-    
-    // cx: Center of the column width
-    const cx = data.cell.x + (data.cell.width / 2);
-    // cy: Near the bottom of the header cell
-    const cy = data.cell.y + data.cell.height - 2; 
 
-    const isGrandTotal = colIdx === numDateCols + 1;
-    doc.setTextColor(isGrandTotal ? 200 : 0, 0, 0);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    
-    // Use 'middle' baseline and 'left' align for better rotation placement
-    doc.text(label, cx, cy, { angle: 90, baseline: 'middle', align: 'left' });
-  }
-},
-	  
-	
-	  
-	  
-    //  didDrawCell: (data) => {
-        //if (data.section === 'head' && data.column.index >= 1) {
-         // const colIdx = data.column.index;
-         // const label = (headerRow[colIdx] ?? '') as string;
-         // const cx = data.cell.x + data.cell.width / 2;
-         // const cy = data.cell.y + data.cell.height;
-         // const isGrandTotal = colIdx === numDateCols + 1;
-          // doc.setTextColor(isGrandTotal ? 200 : 0, 0, 0);
-         // doc.setFont('helvetica', 'bold');
-         // doc.setFontSize(8);
-         // doc.text(label, cx, cy, { angle: 90, baseline: 'bottom', align: 'center' });
-       // }
-      //},
+      didDrawCell: (data) => {
+        if (data.section === 'head' && data.column.index >= 1) {
+          const colIdx = data.column.index;
+          const label = (headerRow[colIdx] ?? '') as string;
+          const cx = data.cell.x + data.cell.width / 2;
+          const cy = data.cell.y + data.cell.height - 2;
+          const isGrandTotal = colIdx === numDateCols + 1;
+          doc.setTextColor(isGrandTotal ? 200 : 0, 0, 0);
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8);
+          doc.text(label, cx, cy, {
+            angle: 90,
+            baseline: 'middle',
+            align: 'left',
+          });
+        }
+
+        if (
+          data.section === 'body' &&
+          data.column.index === 0 &&
+          employeeHighlights.length > 0
+        ) {
+          const pr = rowSource[data.row.index];
+          const matches = employeeHighlights.filter(
+            (h) =>
+              !usedHighlightIds.has(h.id) && proposalMatchesRow(h, pr),
+          );
+          if (matches.length > 0 && pr) {
+            const indent = '  '.repeat(pr.indentLevel);
+            const displayText = pr.isEmployeeTotal
+              ? pr.label
+              : indent + pr.label;
+
+            const noteX = data.cell.x + 2;
+            const maxWidth = Math.max(16, data.cell.width - 4);
+            const renderedNotes: { lines: string[]; boxHeight: number }[] = [];
+            for (const match of matches) {
+              usedHighlightIds.add(match.id);
+              const trigger = match.triggerText?.trim() || match.matchedText.trim();
+              drawPhraseHighlightsInCell(
+                doc,
+                data.cell,
+                displayText,
+                [trigger],
+                9,
+              );
+              doc.setFont('helvetica', 'bold');
+              doc.setFontSize(NOTE_FONT_SIZE);
+              const lines = doc.splitTextToSize(match.comment, maxWidth);
+              renderedNotes.push({
+                lines,
+                boxHeight: lines.length * NOTE_LINE_HEIGHT + 1.6,
+              });
+            }
+
+            const noteGap = 0.8;
+            const totalNoteHeight = renderedNotes.reduce(
+              (sum, note, index) =>
+                sum + note.boxHeight + (index > 0 ? noteGap : 0),
+              0,
+            );
+            let boxY =
+              data.cell.y + data.cell.height - totalNoteHeight - 0.8;
+
+            for (const note of renderedNotes) {
+              doc.setFillColor(255, 255, 220);
+              doc.setDrawColor(200, 0, 0);
+              doc.setLineWidth(0.15);
+              doc.rect(
+                noteX - 0.4,
+                boxY,
+                maxWidth + 0.8,
+                note.boxHeight,
+                'FD',
+              );
+              doc.setTextColor(200, 0, 0);
+              doc.text(note.lines, noteX, boxY + NOTE_LINE_HEIGHT);
+              boxY += note.boxHeight + noteGap;
+            }
+            doc.setTextColor(0, 0, 0);
+            doc.setFont('helvetica', 'normal');
+          }
+        }
+      },
     });
+
+    // Notes are drawn next to their trigger phrases during didDrawCell.
 
     const totalPages = doc.getNumberOfPages();
     for (let p = 1; p <= totalPages; p++) {
@@ -1144,6 +1334,7 @@ const columnStyles = {
       const h = doc.internal.pageSize.getHeight();
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
+      doc.setTextColor(0, 0, 0);
       doc.text(reportTitle, MARGIN, 6);
       doc.setFontSize(8);
       doc.text(`-- ${p} of ${totalPages} --`, w / 2 - 15, h - 8);

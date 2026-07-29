@@ -3,10 +3,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { getAccountEmail, isAllowedOrganizationEmail } from './auth/organization';
 import { logoutCompletely } from './auth/session';
 import { FileUpload } from './components/FileUpload';
+import { HighlightReview } from './components/HighlightReview';
 import { LoginPage } from './components/LoginPage';
-import { PivotPreview } from './components/PivotPreview';
 import { UserManager } from './components/UserManager';
 import { parseClockifyCsv } from './lib/csvParser';
+import {
+  getAcceptedHighlights,
+  proposeHighlights,
+  type HighlightProposal,
+} from './lib/highlightRules';
 import { generatePdfsZip } from './lib/pdfGenerator';
 import { transformToPivot } from './lib/transformer';
 import { loadManagedUsers, saveManagedUsers } from './lib/userSettings';
@@ -23,7 +28,11 @@ function AppContent() {
   const [pivot, setPivot] = useState<PivotData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [revNumber, setRevNumber] = useState<number>(1);
+  const [highlightProposals, setHighlightProposals] = useState<
+    HighlightProposal[]
+  >([]);
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>(
     () => loadManagedUsers(),
   );
@@ -32,28 +41,45 @@ function AppContent() {
     saveManagedUsers(managedUsers);
   }, [managedUsers]);
 
-  const handleFileSelect = useCallback((selectedFile: File) => {
-    setFile(selectedFile);
-    setPivot(null);
-    setError(null);
-    setLoading(true);
+  const handleFileSelect = useCallback(
+    (selectedFile: File) => {
+      setFile(selectedFile);
+      setPivot(null);
+      setHighlightProposals([]);
+      setError(null);
+      setLoading(true);
 
-    parseClockifyCsv(selectedFile).then((result) => {
-      setLoading(false);
-      if (result.success) {
-        setPivot(transformToPivot(result.data));
-      } else {
-        setError(result.error);
-        setFile(null);
-      }
-    });
-  }, []);
+      parseClockifyCsv(selectedFile).then((result) => {
+        setLoading(false);
+        if (result.success) {
+          const nextPivot = transformToPivot(result.data);
+          setPivot(nextPivot);
+          setHighlightProposals(proposeHighlights(nextPivot, managedUsers));
+        } else {
+          setError(result.error);
+          setFile(null);
+        }
+      });
+    },
+    [managedUsers],
+  );
 
   const handleDownloadZip = useCallback(async () => {
     if (!pivot) return;
-    const baseName = file?.name?.replace(/\.csv$/i, '') || 'time-reports';
-    await generatePdfsZip(pivot, `${baseName}.zip`, revNumber, managedUsers);
-  }, [pivot, file, revNumber, managedUsers]);
+    setDownloading(true);
+    try {
+      const baseName = file?.name?.replace(/\.csv$/i, '') || 'time-reports';
+      await generatePdfsZip(
+        pivot,
+        `${baseName}.zip`,
+        revNumber,
+        managedUsers,
+        getAcceptedHighlights(highlightProposals),
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }, [pivot, file, revNumber, managedUsers, highlightProposals]);
 
   const handleLogout = useCallback(() => {
     void logoutCompletely(instance);
@@ -85,6 +111,25 @@ function AppContent() {
     );
   }, []);
 
+  // Re-propose when managed user categories change after a CSV is loaded
+  useEffect(() => {
+    if (!pivot) return;
+    setHighlightProposals((current) => {
+      const next = proposeHighlights(pivot, managedUsers);
+      // Preserve Accept/Edit/Delete decisions where ids still match
+      const prevById = new Map(current.map((p) => [p.id, p]));
+      return next.map((p) => {
+        const prev = prevById.get(p.id);
+        if (!prev) return p;
+        return {
+          ...p,
+          status: prev.status,
+          comment: prev.status === 'accepted' ? prev.comment : p.comment,
+        };
+      });
+    });
+  }, [managedUsers, pivot]);
+
   if (!isAuthenticated || !isAllowed) {
     return <LoginPage />;
   }
@@ -98,8 +143,8 @@ function AppContent() {
               Clockify Time Report CSV to PDF Converter
             </h1>
             <p className="text-sm text-gray-600">
-              Upload a Clockify Detailed Time Report CSV file, preview the data,
-              and download payroll PDFs for each employee.
+              Upload a Clockify Detailed Time Report CSV file, review proposed
+              highlights, and download payroll PDFs for each employee.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -136,7 +181,8 @@ function AppContent() {
               <>
                 <div className="mb-4 flex flex-wrap items-center gap-4">
                   <span className="text-sm text-gray-600">
-                    {file?.name} — {pivot.rows.length} rows
+                    {file?.name} — {pivot.rows.length} rows ·{' '}
+                    {highlightProposals.length} proposed highlights
                   </span>
                   <label className="flex items-center gap-2 text-sm text-gray-600">
                     Rev No.:
@@ -152,19 +198,21 @@ function AppContent() {
                       className="w-16 rounded border border-gray-300 px-2 py-1 text-gray-800"
                     />
                   </label>
-                  <button
-                    onClick={handleDownloadZip}
-                    className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-                  >
-                    Download ZIP (all employee PDFs)
-                  </button>
                 </div>
-                <PivotPreview pivot={pivot} />
+
+                <HighlightReview
+                  key={file?.name ?? 'review'}
+                  proposals={highlightProposals}
+                  onChange={setHighlightProposals}
+                  onDownload={() => {
+                    void handleDownloadZip();
+                  }}
+                  downloading={downloading}
+                />
               </>
             ) : (
               <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                Upload a Clockify CSV to preview the pivot table and generate
-                PDFs.
+                Upload a Clockify CSV to review highlights and generate PDFs.
               </div>
             )}
           </div>
