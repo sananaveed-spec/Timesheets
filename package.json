@@ -12,6 +12,8 @@
   "dependencies": {
     "@azure/msal-browser": "^5.17.1",
     "@azure/msal-react": "^5.5.3",
+    "date-fns": "^4.4.0",
+    "date-fns-tz": "^3.2.0",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "jszip": "^3.10.1",
@@ -26,6 +28,7 @@
     "@types/papaparse": "^5.5.2",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@vercel/node": "^5.9.3",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.27",
     "eslint": "^9.39.1",

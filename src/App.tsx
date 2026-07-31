@@ -2,11 +2,11 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react';
 import { useCallback, useEffect, useState } from 'react';
 import { getAccountEmail, isAllowedOrganizationEmail } from './auth/organization';
 import { logoutCompletely } from './auth/session';
-import { FileUpload } from './components/FileUpload';
+import { DateRangeFetch } from './components/DateRangeFetch';
 import { HighlightReview } from './components/HighlightReview';
 import { LoginPage } from './components/LoginPage';
 import { UserManager } from './components/UserManager';
-import { parseClockifyCsv } from './lib/csvParser';
+import { fetchClockifyDetailedRange } from './lib/clockifyApi';
 import {
   getAcceptedHighlights,
   proposeHighlights,
@@ -24,7 +24,7 @@ function AppContent() {
   const email = getAccountEmail(accounts[0]);
   const isAllowed = isAllowedOrganizationEmail(email);
 
-  const [file, setFile] = useState<File | null>(null);
+  const [sourceLabel, setSourceLabel] = useState<string | null>(null);
   const [pivot, setPivot] = useState<PivotData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -41,23 +41,24 @@ function AppContent() {
     saveManagedUsers(managedUsers);
   }, [managedUsers]);
 
-  const handleFileSelect = useCallback(
-    (selectedFile: File) => {
-      setFile(selectedFile);
+  const handleDateRangeFetch = useCallback(
+    (startDate: string, endDate: string) => {
+      setSourceLabel(null);
       setPivot(null);
       setHighlightProposals([]);
       setError(null);
       setLoading(true);
 
-      parseClockifyCsv(selectedFile).then((result) => {
+      fetchClockifyDetailedRange(startDate, endDate).then((result) => {
         setLoading(false);
         if (result.success) {
           const nextPivot = transformToPivot(result.data);
           setPivot(nextPivot);
+          setSourceLabel(result.label);
           setHighlightProposals(proposeHighlights(nextPivot, managedUsers));
         } else {
           setError(result.error);
-          setFile(null);
+          setSourceLabel(null);
         }
       });
     },
@@ -68,7 +69,8 @@ function AppContent() {
     if (!pivot) return;
     setDownloading(true);
     try {
-      const baseName = file?.name?.replace(/\.csv$/i, '') || 'time-reports';
+      const baseName =
+        sourceLabel?.replace(/\s+/g, '-') || 'clockify-time-reports';
       await generatePdfsZip(
         pivot,
         `${baseName}.zip`,
@@ -79,7 +81,7 @@ function AppContent() {
     } finally {
       setDownloading(false);
     }
-  }, [pivot, file, revNumber, managedUsers, highlightProposals]);
+  }, [pivot, sourceLabel, revNumber, managedUsers, highlightProposals]);
 
   const handleLogout = useCallback(() => {
     void logoutCompletely(instance);
@@ -111,7 +113,7 @@ function AppContent() {
     );
   }, []);
 
-  // Re-propose when managed user categories change after a CSV is loaded
+  // Re-propose when managed user categories change after data is loaded
   useEffect(() => {
     if (!pivot) return;
     setHighlightProposals((current) => {
@@ -140,11 +142,11 @@ function AppContent() {
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="mb-2 text-2xl font-bold text-gray-800">
-              Clockify Time Report CSV to PDF Converter
+              Clockify Time Report to PDF Converter
             </h1>
             <p className="text-sm text-gray-600">
-              Upload a Clockify Detailed Time Report CSV file, review proposed
-              highlights, and download payroll PDFs for each employee.
+              Pull a Clockify Detailed Time Report by date range, review
+              proposed highlights, and download payroll PDFs for each employee.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -164,11 +166,16 @@ function AppContent() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
             <div className="mb-6 max-w-xl">
-              <FileUpload onFileSelect={handleFileSelect} disabled={loading} />
+              <DateRangeFetch
+                onFetch={handleDateRangeFetch}
+                disabled={loading}
+              />
             </div>
 
             {loading && (
-              <p className="mb-4 text-sm text-blue-600">Processing CSV...</p>
+              <p className="mb-4 text-sm text-blue-600">
+                Fetching Clockify detailed entries...
+              </p>
             )}
 
             {error && (
@@ -181,7 +188,7 @@ function AppContent() {
               <>
                 <div className="mb-4 flex flex-wrap items-center gap-4">
                   <span className="text-sm text-gray-600">
-                    {file?.name} — {pivot.rows.length} rows ·{' '}
+                    {sourceLabel} — {pivot.rows.length} rows ·{' '}
                     {highlightProposals.length} proposed highlights
                   </span>
                   <label className="flex items-center gap-2 text-sm text-gray-600">
@@ -201,7 +208,7 @@ function AppContent() {
                 </div>
 
                 <HighlightReview
-                  key={file?.name ?? 'review'}
+                  key={sourceLabel ?? 'review'}
                   proposals={highlightProposals}
                   onChange={setHighlightProposals}
                   onDownload={() => {
@@ -212,7 +219,8 @@ function AppContent() {
               </>
             ) : (
               <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                Upload a Clockify CSV to review highlights and generate PDFs.
+                Select a start and end date, then click Next to pull Clockify
+                data and review highlights.
               </div>
             )}
           </div>
