@@ -1,0 +1,6 @@
+.saves
+Training Data
+Training Files
+keyword-time-report.pdf
+*.pdf
+.env*.local

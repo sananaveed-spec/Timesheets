@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect, Plugin } from 'vite';
 import { loadEnv } from 'vite';
-import { fetchDetailedRowsForRange } from '../server/clockify';
+import { fetchDetailedRowsForRange } from '../api/_lib/clockify';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 

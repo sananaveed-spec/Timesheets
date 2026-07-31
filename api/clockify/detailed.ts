@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchDetailedRowsForRange } from '../../server/clockify';
+import { fetchDetailedRowsForRange } from '../_lib/clockify.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
