@@ -1,4 +1,4 @@
-import { formatInTimeZone, fromZonedTime } from 'date-fns-tz';
+import { formatInTimeZone } from 'date-fns-tz';
 
 const CLOCKIFY_BASE_URL = 'https://api.clockify.me/api/v1';
 const MAX_RETRIES = 4;
@@ -91,14 +91,26 @@ export function getTimeEntrySeconds(entry: ClockifyTimeEntry): number {
   return Math.max(Math.floor((endMs - startMs) / 1000), 0);
 }
 
+/**
+ * Build Clockify time-entry filter bounds for a calendar date range.
+ *
+ * Clockify's `/user/{id}/time-entries` `start`/`end` params are interpreted as
+ * workspace-local wall times (even when a `Z` suffix is present). Converting
+ * local midnight to real UTC (e.g. 07:00Z for America/Los_Angeles) shifts the
+ * window forward and drops early-day entries — which showed up as short days
+ * like Zulfi 7/1 = 2h instead of 8h.
+ *
+ * `timezone` is kept for call-site compatibility; entry → date mapping still
+ * uses `formatInTimeZone` separately.
+ */
 export function dateRangeToISO(
   startDate: string,
   endDate: string,
-  timezone: string,
+  _timezone: string,
 ): { startISO: string; endISO: string } {
   return {
-    startISO: fromZonedTime(`${startDate}T00:00:00.000`, timezone).toISOString(),
-    endISO: fromZonedTime(`${endDate}T23:59:59.999`, timezone).toISOString(),
+    startISO: `${startDate}T00:00:00.000Z`,
+    endISO: `${endDate}T23:59:59.999Z`,
   };
 }
 
