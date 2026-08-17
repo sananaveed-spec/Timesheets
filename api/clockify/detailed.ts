@@ -25,11 +25,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const body =
       typeof req.body === 'string'
-        ? (JSON.parse(req.body) as { startDate?: string; endDate?: string })
-        : ((req.body ?? {}) as { startDate?: string; endDate?: string });
+        ? (JSON.parse(req.body) as {
+            startDate?: string;
+            endDate?: string;
+            employeeNames?: string[];
+          })
+        : ((req.body ?? {}) as {
+            startDate?: string;
+            endDate?: string;
+            employeeNames?: string[];
+          });
 
     const startDate = body.startDate?.trim() ?? '';
     const endDate = body.endDate?.trim() ?? '';
+    const employeeNames = Array.isArray(body.employeeNames)
+      ? body.employeeNames
+          .filter((name): name is string => typeof name === 'string')
+          .map((name) => name.trim())
+          .filter(Boolean)
+      : undefined;
 
     if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) {
       res.status(400).json({
@@ -45,7 +59,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const rows = await fetchDetailedRowsForRange(readEnv(), startDate, endDate);
+    const rows = await fetchDetailedRowsForRange(
+      readEnv(),
+      startDate,
+      endDate,
+      employeeNames,
+    );
     res.status(200).json({ rows, count: rows.length });
   } catch (error) {
     const message =

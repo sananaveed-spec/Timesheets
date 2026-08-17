@@ -1,7 +1,10 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Connect, Plugin } from 'vite';
 import { loadEnv } from 'vite';
-import { fetchDetailedRowsForRange } from '../api/_lib/clockify';
+import {
+  fetchActiveUsersFromEnv,
+  fetchDetailedRowsForRange,
+} from '../api/_lib/clockify';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -34,6 +37,30 @@ function sendJson(
 function createHandler(env: Record<string, string>): Connect.NextHandleFunction {
   return async (req, res, next) => {
     const url = req.url?.split('?')[0];
+
+    if (url === '/api/clockify/users') {
+      if (req.method === 'OPTIONS') {
+        res.statusCode = 204;
+        res.end();
+        return;
+      }
+
+      if (req.method !== 'GET') {
+        sendJson(res, 405, { error: 'Method not allowed' });
+        return;
+      }
+
+      try {
+        const users = await fetchActiveUsersFromEnv(env);
+        sendJson(res, 200, { users, count: users.length });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Clockify request failed.';
+        sendJson(res, 500, { error: message });
+      }
+      return;
+    }
+
     if (url !== '/api/clockify/detailed') {
       next();
       return;
@@ -54,9 +81,16 @@ function createHandler(env: Record<string, string>): Connect.NextHandleFunction 
       const body = (await readJsonBody(req)) as {
         startDate?: string;
         endDate?: string;
+        employeeNames?: string[];
       };
       const startDate = body.startDate?.trim() ?? '';
       const endDate = body.endDate?.trim() ?? '';
+      const employeeNames = Array.isArray(body.employeeNames)
+        ? body.employeeNames
+            .filter((name): name is string => typeof name === 'string')
+            .map((name) => name.trim())
+            .filter(Boolean)
+        : undefined;
 
       if (!DATE_RE.test(startDate) || !DATE_RE.test(endDate)) {
         sendJson(res, 400, {
@@ -72,7 +106,12 @@ function createHandler(env: Record<string, string>): Connect.NextHandleFunction 
         return;
       }
 
-      const rows = await fetchDetailedRowsForRange(env, startDate, endDate);
+      const rows = await fetchDetailedRowsForRange(
+        env,
+        startDate,
+        endDate,
+        employeeNames,
+      );
       sendJson(res, 200, { rows, count: rows.length });
     } catch (error) {
       const message =

@@ -300,14 +300,42 @@ async function mapPool<T, R>(
   return results;
 }
 
+export type ClockifyUserSummary = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+export async function fetchActiveUsersFromEnv(
+  env: Record<string, string>,
+): Promise<ClockifyUserSummary[]> {
+  const { client } = createClockifyClientFromEnv(env);
+  const users = await client.getActiveUsers();
+  return users.map((user) => ({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+  }));
+}
+
 export async function fetchDetailedRowsForRange(
   env: Record<string, string>,
   startDate: string,
   endDate: string,
+  userNames?: string[],
 ): Promise<ClockifyCsvRow[]> {
   const { client, timezone } = createClockifyClientFromEnv(env);
   const { startISO, endISO } = dateRangeToISO(startDate, endDate, timezone);
-  const users = await client.getActiveUsers();
+  let users = await client.getActiveUsers();
+
+  if (userNames && userNames.length > 0) {
+    const selected = new Set(userNames.map((name) => name.trim()).filter(Boolean));
+    users = users.filter((user) => selected.has(user.name));
+    if (users.length === 0) {
+      throw new Error('No matching Clockify employees found for the selection.');
+    }
+  }
+
   const userById = new Map(users.map((u) => [u.id, u]));
 
   const entryBatches = await mapPool(users, USER_CONCURRENCY, async (user) => {

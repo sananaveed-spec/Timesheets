@@ -2,7 +2,7 @@ import { useIsAuthenticated, useMsal } from '@azure/msal-react';
 import { useCallback, useEffect, useState } from 'react';
 import { getAccountEmail, isAllowedOrganizationEmail } from './auth/organization';
 import { logoutCompletely } from './auth/session';
-import { DateRangeFetch } from './components/DateRangeFetch';
+import { ReportSetup } from './components/ReportSetup';
 import { HighlightReview } from './components/HighlightReview';
 import { LoginPage } from './components/LoginPage';
 import { UserManager } from './components/UserManager';
@@ -42,25 +42,27 @@ function AppContent() {
   }, [managedUsers]);
 
   const handleDateRangeFetch = useCallback(
-    (startDate: string, endDate: string) => {
+    (startDate: string, endDate: string, employeeNames: string[]) => {
       setSourceLabel(null);
       setPivot(null);
       setHighlightProposals([]);
       setError(null);
       setLoading(true);
 
-      fetchClockifyDetailedRange(startDate, endDate).then((result) => {
-        setLoading(false);
-        if (result.success) {
-          const nextPivot = transformToPivot(result.data);
-          setPivot(nextPivot);
-          setSourceLabel(result.label);
-          setHighlightProposals(proposeHighlights(nextPivot, managedUsers));
-        } else {
-          setError(result.error);
-          setSourceLabel(null);
-        }
-      });
+      fetchClockifyDetailedRange(startDate, endDate, employeeNames).then(
+        (result) => {
+          setLoading(false);
+          if (result.success) {
+            const nextPivot = transformToPivot(result.data);
+            setPivot(nextPivot);
+            setSourceLabel(result.label);
+            setHighlightProposals(proposeHighlights(nextPivot, managedUsers));
+          } else {
+            setError(result.error);
+            setSourceLabel(null);
+          }
+        },
+      );
     },
     [managedUsers],
   );
@@ -145,8 +147,8 @@ function AppContent() {
               Clockify Time Report to PDF Converter
             </h1>
             <p className="text-sm text-gray-600">
-              Pull a Clockify Detailed Time Report by date range, review
-              proposed highlights, and download payroll PDFs for each employee.
+              Pull a Clockify Detailed Time Report by date range and employee,
+              review proposed highlights, and download payroll PDFs.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -166,10 +168,7 @@ function AppContent() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
             <div className="mb-6 max-w-xl">
-              <DateRangeFetch
-                onFetch={handleDateRangeFetch}
-                disabled={loading}
-              />
+              <ReportSetup onFetch={handleDateRangeFetch} disabled={loading} />
             </div>
 
             {loading && (
@@ -219,8 +218,8 @@ function AppContent() {
               </>
             ) : (
               <div className="rounded-lg border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                Select a start and end date, then click Next to pull Clockify
-                data and review highlights.
+                Select a date range, choose employees, then click Next to pull
+                Clockify data and review highlights.
               </div>
             )}
           </div>
