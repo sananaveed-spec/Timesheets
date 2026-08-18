@@ -239,8 +239,9 @@ function hasZeroMiles(description: string): boolean {
 
 function hasMultipleHourValues(description: string): boolean {
   // Matches: "1 hour", "2 hours", "2.5 hrs", "3 hr", case-insensitive.
-  // Also tolerates a trailing period: "2 hr.", "2 hrs."
-  const hourRegex = /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\.?\b/gi;
+  // Also tolerates trailing punctuation: "2 hr.", "2 hrs,", etc.
+  const hourRegex =
+    /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\.?(?=\b|$|[^A-Za-z0-9])/gi;
   const matches = description.match(hourRegex);
   return (matches?.length ?? 0) >= 2;
 }
@@ -767,7 +768,7 @@ export function proposeHighlights(
 
       if (hasMultipleHourValues(desc)) {
         const hoursSentence = sentenceContaining(desc, [
-          /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\.?\b/i,
+          /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\.?(?=\b|$|[^A-Za-z0-9])/i,
         ]);
 
         pushUnique(proposals, seen, {
