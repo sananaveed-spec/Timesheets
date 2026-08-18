@@ -740,7 +740,10 @@ export function proposeHighlights(
           triggerText: sentenceContaining(desc, travelPatterns) || desc.trim(),
           projectLabel: currentProjectLabel,
           tag: currentTag,
-          comment: 'Miles??',
+          comment: withMentions(
+            mentionUsers,
+            'Mention who drove, so the miles can be tracked against that person’s entry.',
+          ),
         });
       }
 
