@@ -23,7 +23,8 @@ export type HighlightRuleId =
   | 'future_billable'
   | 'wrong_coding'
   | 'holiday_comp'
-  | 'category_sick';
+  | 'category_sick'
+  | 'internal_note';
 
 export interface HighlightProposal {
   id: string;
@@ -508,6 +509,7 @@ function mergeProposalsByRow(
     'miles_in_eps_admin_office_time',
     'holiday_comp',
     'category_sick',
+    'internal_note',
   ];
 
   const merged: HighlightProposal[] = [];
@@ -662,6 +664,7 @@ const RULE_LABELS: Record<HighlightRuleId, string> = {
   wrong_coding: 'Possible wrong coding',
   holiday_comp: 'Holiday / Comp Time',
   category_sick: 'Sick category correction',
+  internal_note: 'Internal note',
 };
 
 export function proposeHighlights(
@@ -960,6 +963,22 @@ export function proposeHighlights(
           projectLabel: currentProjectLabel,
           tag: currentTag,
           comment: `${employeeFirst}..... Use EPS Admin: Sick Time as project category`,
+        });
+      }
+
+      const internalNoteSentence = sentenceContaining(desc, [
+        /\binternal\s+note\b/i,
+      ]);
+      if (internalNoteSentence) {
+        pushUnique(proposals, seen, {
+          employeeName,
+          ruleId: 'internal_note',
+          ruleLabel: RULE_LABELS.internal_note,
+          matchedText: desc,
+          triggerText: internalNoteSentence,
+          projectLabel: currentProjectLabel,
+          tag: currentTag,
+          comment: withMentions(mentionUsers, 'please note this point'),
         });
       }
     }
