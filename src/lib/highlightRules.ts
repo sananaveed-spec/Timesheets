@@ -17,6 +17,7 @@ export type HighlightStatus = 'pending' | 'accepted' | 'deleted';
 export type HighlightRuleId =
   | 'missing_miles'
   | 'odd_miles'
+  | 'miles_in_eps_admin_office_time'
   | 'billable_keyword'
   | 'open_job_keyword'
   | 'future_billable'
@@ -390,6 +391,16 @@ function isNonBillableStarProject(projectLabel: string): boolean {
   return projectLabel.trim().startsWith('*');
 }
 
+function isEpsAdminOfficeTimeProject(projectLabel: string): boolean {
+  // Examples (as described): *EPS Admin office time / *Eps admin office time
+  return (
+    isNonBillableStarProject(projectLabel) &&
+    /\bEPS\s*ADMIN\b/i.test(projectLabel) &&
+    /\bOFFICE\b/i.test(projectLabel) &&
+    /\bTIME\b/i.test(projectLabel)
+  );
+}
+
 function isProposalTime(projectLabel: string): boolean {
   return /PROPOSAL\s+TIME/i.test(projectLabel);
 }
@@ -494,6 +505,7 @@ function mergeProposalsByRow(
     'billable_keyword',
     'missing_miles',
     'odd_miles',
+    'miles_in_eps_admin_office_time',
     'holiday_comp',
     'category_sick',
   ];
@@ -643,6 +655,7 @@ function sentenceContaining(
 const RULE_LABELS: Record<HighlightRuleId, string> = {
   missing_miles: 'Missing miles',
   odd_miles: 'Odd miles (0 miles)',
+  miles_in_eps_admin_office_time: 'Miles in EPS Admin office time',
   billable_keyword: 'Possible billable work',
   open_job_keyword: 'Open job / job number needed',
   future_billable: 'Future billable',
@@ -732,6 +745,28 @@ export function proposeHighlights(
               mentionUsers,
               'If miles are 0 then why it is mentioned? may be a typo?',
             ),
+        });
+      }
+
+      const epsAdminOfficeTimeMilesMentioned =
+        isEpsAdminOfficeTimeProject(currentProjectLabel) &&
+        hasMiles(desc) &&
+        !hasZeroMiles(desc);
+
+      if (epsAdminOfficeTimeMilesMentioned) {
+        const milesSentence = sentenceContaining(desc, [/\bmiles?\b/i]);
+        pushUnique(proposals, seen, {
+          employeeName,
+          ruleId: 'miles_in_eps_admin_office_time',
+          ruleLabel: RULE_LABELS.miles_in_eps_admin_office_time,
+          matchedText: desc,
+          triggerText: milesSentence || desc.trim(),
+          projectLabel: currentProjectLabel,
+          tag: currentTag,
+          comment: withMentions(
+            mentionUsers,
+            'Miles are mentioned. This may be billable/Future billable?',
+          ),
         });
       }
 
