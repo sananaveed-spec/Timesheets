@@ -546,20 +546,13 @@ function computeReportCard(
         let eligibleHoursForPto = 0;
         if (isWeekday(d) && reportingHours > 0) {
           const regularCap = Math.min(reportingHours, 8);
-          const excludedRegular = Math.min(excludedHours, regularCap);
-          const regularSpaceForEligible = Math.max(0, regularCap - excludedRegular);
-          eligibleHoursForPto = Math.min(eligibleHoursSum, regularSpaceForEligible);
+          // FMLA/leave stays categorized as excluded time, but does not reduce
+          // same-day regular worked-hour eligibility for earned worked days.
+          eligibleHoursForPto = Math.min(eligibleHoursSum, regularCap);
         }
         const reasons = Array.from(accruedPTOExclusionReasonsByDate[d] ?? []);
         if (excludedHours > 0) reasons.push(`${formatDecimal(excludedHours)} excluded hrs`);
         if (!isWeekday(d) && reportingHours > 0) reasons.push('Weekend');
-        if (
-          isWeekday(d) &&
-          eligibleHoursSum > 0 &&
-          eligibleHoursForPto === 0
-        ) {
-          reasons.push('Eligible hours in overtime only (sick/PTO/holiday/FMLA use regular 8 hrs first)');
-        }
         const reason = reasons.length > 0
           ? reasons.join(', ')
           : reportingHours <= 0
