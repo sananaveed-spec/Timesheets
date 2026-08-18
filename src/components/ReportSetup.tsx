@@ -3,6 +3,8 @@ import {
   fetchClockifyUsers,
   type ClockifyUserSummary,
 } from '../lib/clockifyApi';
+import { sameEmployeeName } from '../lib/employeeCategories';
+import type { ManagedUser } from '../types';
 
 interface ReportSetupProps {
   onFetch: (
@@ -10,6 +12,7 @@ interface ReportSetupProps {
     endDate: string,
     employeeNames: string[],
   ) => void;
+  savedUsers: ManagedUser[];
   disabled?: boolean;
 }
 
@@ -26,7 +29,29 @@ function firstOfMonthIso(): string {
   return `${y}-${m}-01`;
 }
 
-export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
+function buildSelectableEmployees(
+  savedUsers: ManagedUser[],
+  clockifyUsers: ClockifyUserSummary[],
+): ClockifyUserSummary[] {
+  return savedUsers
+    .map((user) => {
+      const match = clockifyUsers.find((employee) =>
+        sameEmployeeName(employee.name, user.name),
+      );
+      return {
+        id: match?.id ?? user.id,
+        name: match?.name ?? user.name,
+        email: match?.email ?? '',
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function ReportSetup({
+  onFetch,
+  savedUsers,
+  disabled,
+}: ReportSetupProps) {
   const [step, setStep] = useState<SetupStep>('dates');
   const [startDate, setStartDate] = useState(firstOfMonthIso);
   const [endDate, setEndDate] = useState(todayIso);
@@ -75,6 +100,14 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
     setEmployeeError(null);
     setLoadingEmployees(true);
 
+    if (savedUsers.length === 0) {
+      setLoadingEmployees(false);
+      setEmployeeError(
+        'Add employees in Manage Users first. Only saved users can be selected.',
+      );
+      return;
+    }
+
     const result = await fetchClockifyUsers();
     setLoadingEmployees(false);
 
@@ -83,11 +116,12 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
       return;
     }
 
-    setEmployees(result.users);
-    setSelectedNames(new Set(result.users.map((user) => user.name)));
+    const selectable = buildSelectableEmployees(savedUsers, result.users);
+    setEmployees(selectable);
+    setSelectedNames(new Set(selectable.map((user) => user.name)));
     setSearchQuery('');
     setStep('employees');
-  }, [canSubmitDates, disabled, loadingEmployees]);
+  }, [canSubmitDates, disabled, loadingEmployees, savedUsers]);
 
   const handleToggleEmployee = useCallback((name: string) => {
     setSelectedNames((current) => {
@@ -125,9 +159,13 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
   }, [sortedEmployees]);
 
   const handleEmployeesNext = useCallback(() => {
-    if (disabled || selectedNames.size === 0) return;
-    onFetch(startDate, endDate, Array.from(selectedNames).sort());
-  }, [disabled, endDate, onFetch, selectedNames, startDate]);
+    const names = sortedEmployees
+      .filter((employee) => selectedNames.has(employee.name))
+      .map((employee) => employee.name)
+      .sort();
+    if (disabled || names.length === 0) return;
+    onFetch(startDate, endDate, names);
+  }, [disabled, endDate, onFetch, selectedNames, sortedEmployees, startDate]);
 
   const handleBack = useCallback(() => {
     setStep('dates');
@@ -142,7 +180,7 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
           Step 1: Select a date range
         </p>
         <p className="mb-4 text-xs text-gray-600">
-          Choose the Clockify Detailed View period, then pick employees on the
+          Choose the Clockify Detailed View period, then pick saved users on the
           next step.
         </p>
         <div className="flex flex-wrap items-end gap-4">
@@ -201,7 +239,8 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
             Step 2: Select employees
           </p>
           <p className="mt-1 text-xs text-gray-600">
-            {startDate} to {endDate}. Choose one, several, or all employees.
+            {startDate} to {endDate}. Showing {sortedEmployees.length} saved
+            user{sortedEmployees.length === 1 ? '' : 's'}.
           </p>
         </div>
         <button
@@ -232,7 +271,7 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             disabled={disabled}
-            placeholder="Search employees"
+            placeholder="Search saved users"
             className="w-full rounded-lg border border-gray-300 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-gray-100"
           />
         </div>
@@ -268,7 +307,7 @@ export function ReportSetup({ onFetch, disabled }: ReportSetupProps) {
       <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border border-gray-200 bg-white p-3">
         {filteredEmployees.length === 0 ? (
           <p className="px-2 py-6 text-center text-sm text-gray-500">
-            No employees match &ldquo;{searchQuery.trim()}&rdquo;.
+            No saved users match &ldquo;{searchQuery.trim()}&rdquo;.
           </p>
         ) : (
           filteredEmployees.map((employee) => {

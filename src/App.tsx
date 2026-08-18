@@ -249,7 +249,11 @@ function AppContent() {
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
           <div className="rounded-2xl bg-white p-6 shadow-sm ring-1 ring-gray-200">
             <div className="mb-6 max-w-xl">
-              <ReportSetup onFetch={handleDateRangeFetch} disabled={loading} />
+              <ReportSetup
+                onFetch={handleDateRangeFetch}
+                savedUsers={managedUsers}
+                disabled={loading}
+              />
             </div>
 
             {loading && (
