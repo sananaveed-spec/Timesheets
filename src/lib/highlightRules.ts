@@ -402,13 +402,13 @@ function isNonBillableStarProject(projectLabel: string): boolean {
   return projectLabel.trim().startsWith('*');
 }
 
-function isEpsAdminOfficeTimeProject(projectLabel: string): boolean {
-  // Examples (as described): *EPS Admin office time / *Eps admin office time
+function isEpsAdminOfficeOrProposalTime(projectLabel: string): boolean {
+  // *EPS Admin: Office Time or *EPS Admin: Proposal Time
+  if (!isNonBillableStarProject(projectLabel)) return false;
+  if (!/\bEPS\s*ADMIN\b/i.test(projectLabel)) return false;
   return (
-    isNonBillableStarProject(projectLabel) &&
-    /\bEPS\s*ADMIN\b/i.test(projectLabel) &&
-    /\bOFFICE\b/i.test(projectLabel) &&
-    /\bTIME\b/i.test(projectLabel)
+    /\bOFFICE\s+TIME\b/i.test(projectLabel) ||
+    /\bPROPOSAL\s+TIME\b/i.test(projectLabel)
   );
 }
 
@@ -784,7 +784,7 @@ export function proposeHighlights(
       }
 
       const epsAdminOfficeTimeMilesMentioned =
-        isEpsAdminOfficeTimeProject(currentProjectLabel) &&
+        isEpsAdminOfficeOrProposalTime(currentProjectLabel) &&
         hasMiles(desc) &&
         !hasZeroMiles(desc);
 
