@@ -8,14 +8,28 @@ import { LoginPage } from './components/LoginPage';
 import { UserManager } from './components/UserManager';
 import { fetchClockifyDetailedRange } from './lib/clockifyApi';
 import {
+  alignUsersWithClockify,
+  sameEmployeeName,
+} from './lib/employeeCategories';
+import {
   getAcceptedHighlights,
   proposeHighlights,
   type HighlightProposal,
 } from './lib/highlightRules';
 import { generatePdfsZip } from './lib/pdfGenerator';
 import { transformToPivot } from './lib/transformer';
-import { loadManagedUsers, saveManagedUsers } from './lib/userSettings';
-import type { EmployeeCategory, ManagedUser, PivotData } from './types';
+import {
+  loadManagedUsers,
+  loadMentionUsers,
+  saveManagedUsers,
+  saveMentionUsers,
+} from './lib/userSettings';
+import type {
+  EmployeeCategory,
+  ManagedUser,
+  MentionUser,
+  PivotData,
+} from './types';
 
 function AppContent() {
   const { instance, accounts } = useMsal();
@@ -36,10 +50,23 @@ function AppContent() {
   const [managedUsers, setManagedUsers] = useState<ManagedUser[]>(
     () => loadManagedUsers(),
   );
+  const [mentionUsers, setMentionUsers] = useState<MentionUser[]>(
+    () => loadMentionUsers(),
+  );
+
+  useEffect(() => {
+    setManagedUsers((currentUsers) =>
+      currentUsers.length > 0 ? currentUsers : loadManagedUsers(),
+    );
+  }, []);
 
   useEffect(() => {
     saveManagedUsers(managedUsers);
   }, [managedUsers]);
+
+  useEffect(() => {
+    saveMentionUsers(mentionUsers);
+  }, [mentionUsers]);
 
   const handleDateRangeFetch = useCallback(
     (startDate: string, endDate: string, employeeNames: string[]) => {
@@ -56,7 +83,9 @@ function AppContent() {
             const nextPivot = transformToPivot(result.data);
             setPivot(nextPivot);
             setSourceLabel(result.label);
-            setHighlightProposals(proposeHighlights(nextPivot, managedUsers));
+            setHighlightProposals(
+              proposeHighlights(nextPivot, managedUsers, mentionUsers),
+            );
           } else {
             setError(result.error);
             setSourceLabel(null);
@@ -64,7 +93,7 @@ function AppContent() {
         },
       );
     },
-    [managedUsers],
+    [managedUsers, mentionUsers],
   );
 
   const handleDownloadZip = useCallback(async () => {
@@ -89,37 +118,91 @@ function AppContent() {
     void logoutCompletely(instance);
   }, [instance]);
 
-  const handleAddUser = useCallback(
-    (name: string, category: EmployeeCategory) => {
+  const handleAddUsers = useCallback(
+    (names: string[], category: EmployeeCategory) => {
       setManagedUsers((currentUsers) => {
-        const normalizedName = name.trim().toLowerCase();
-        const existingUser = currentUsers.find(
-          (user) => user.name.trim().toLowerCase() === normalizedName,
-        );
+        const nextUsers = [...currentUsers];
 
-        if (existingUser) {
-          return currentUsers.map((user) =>
-            user.id === existingUser.id ? { ...user, name, category } : user,
+        for (const name of names) {
+          const trimmedName = name.trim();
+          if (!trimmedName) continue;
+          const existingIndex = nextUsers.findIndex((user) =>
+            sameEmployeeName(user.name, trimmedName),
           );
+
+          if (existingIndex >= 0) {
+            continue;
+          }
+
+          nextUsers.push({
+            id: crypto.randomUUID(),
+            name: trimmedName,
+            category,
+          });
         }
 
-        return [...currentUsers, { id: crypto.randomUUID(), name, category }];
+        return nextUsers;
       });
     },
     [],
   );
 
-  const handleRemoveUser = useCallback((id: string) => {
+  const handleUpdateUser = useCallback(
+    (id: string, category: EmployeeCategory) => {
+      setManagedUsers((currentUsers) =>
+        currentUsers.map((user) =>
+          user.id === id ? { ...user, category } : user,
+        ),
+      );
+    },
+    [],
+  );
+
+  const handleSyncClockifyNames = useCallback(
+    (clockifyUsers: { name: string }[]) => {
+      setManagedUsers((currentUsers) =>
+        alignUsersWithClockify(currentUsers, clockifyUsers),
+      );
+    },
+    [],
+  );
+
+  const handleRemoveUsers = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
     setManagedUsers((currentUsers) =>
-      currentUsers.filter((user) => user.id !== id),
+      currentUsers.filter((user) => !idSet.has(user.id)),
     );
   }, []);
 
-  // Re-propose when managed user categories change after data is loaded
+  const handleAddMentions = useCallback((names: string[]) => {
+    setMentionUsers((currentUsers) => {
+      const nextUsers = [...currentUsers];
+
+      for (const name of names) {
+        const trimmedName = name.trim();
+        if (!trimmedName) continue;
+        if (nextUsers.some((user) => sameEmployeeName(user.name, trimmedName))) {
+          continue;
+        }
+        nextUsers.push({ id: crypto.randomUUID(), name: trimmedName });
+      }
+
+      return nextUsers;
+    });
+  }, []);
+
+  const handleRemoveMentions = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    setMentionUsers((currentUsers) =>
+      currentUsers.filter((user) => !idSet.has(user.id)),
+    );
+  }, []);
+
+  // Re-propose when managed user categories or mention names change
   useEffect(() => {
     if (!pivot) return;
     setHighlightProposals((current) => {
-      const next = proposeHighlights(pivot, managedUsers);
+      const next = proposeHighlights(pivot, managedUsers, mentionUsers);
       // Preserve Accept/Edit/Delete decisions where ids still match
       const prevById = new Map(current.map((p) => [p.id, p]));
       return next.map((p) => {
@@ -132,7 +215,7 @@ function AppContent() {
         };
       });
     });
-  }, [managedUsers, pivot]);
+  }, [managedUsers, mentionUsers, pivot]);
 
   if (!isAuthenticated || !isAllowed) {
     return <LoginPage />;
@@ -226,8 +309,13 @@ function AppContent() {
 
           <UserManager
             users={managedUsers}
-            onAddUser={handleAddUser}
-            onRemoveUser={handleRemoveUser}
+            mentionUsers={mentionUsers}
+            onAddUsers={handleAddUsers}
+            onUpdateUser={handleUpdateUser}
+            onSyncClockifyNames={handleSyncClockifyNames}
+            onRemoveUsers={handleRemoveUsers}
+            onAddMentions={handleAddMentions}
+            onRemoveMentions={handleRemoveMentions}
           />
         </div>
       </div>

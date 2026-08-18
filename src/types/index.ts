@@ -49,3 +49,8 @@ export interface ManagedUser {
   name: string;
   category: EmployeeCategory;
 }
+
+export interface MentionUser {
+  id: string;
+  name: string;
+}

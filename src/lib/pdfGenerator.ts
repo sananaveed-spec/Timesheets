@@ -8,6 +8,12 @@ import type {
   PivotData,
   PivotRow,
 } from '../types';
+import {
+  DEFAULT_FULL_TIME_HOURLY,
+  DEFAULT_FULL_TIME_SALARIED,
+  DEFAULT_PART_TIME_HOURLY,
+  normalizeEmployeeName,
+} from './employeeCategories';
 
 //const MARGIN = 10;
 //const COLUMN_WIDTH_ROW_LABELS = 94;
@@ -21,47 +27,10 @@ const NOTE_LINE_HEIGHT = 3.2;
 /** Approximate characters that fit per note line at NOTE_FONT_SIZE. */
 const NOTE_CHARS_PER_LINE = 90;
 
-const DEFAULT_FULL_TIME_SALARIED = new Set([
-  'Joe Prevendar',
-  'Abdur Rehman',
-  'Eric Pieper',
-  'Chandler Hubbard',
-  'Aatir Siddiqui',
-  'Zulfi Aijaz',
-  'Aamir Ali',
-  'Muhammad Shaharyar',
-]);
-
-const DEFAULT_FULL_TIME_HOURLY = new Set([
-  'Justin Ray',
-  'Kathy',
-  'William Bill Dearsan',
-  'Ian Obermann',
-  'jose.bravo',
-  'Joni Pieper',
-  'joshua.pieper',
-]);
-
-const DEFAULT_PART_TIME_HOURLY = new Set([
-  'Aaron Nevarez',
-  'Ashraf Alkiesoum',
-  'Gary Bettencourt',
-  'Han Luu',
-  'Julian Sanchez',
-  'mee.vang',
-  'Tyler Smith',
-  'julian.diaz',
-  'luke.contreras',
-]);
-
-function normalizeEmployeeName(employeeName: string): string {
-  return employeeName.replace(/\s*\([^)]*\)\s*$/, '').trim();
-}
-
 function buildCategorySets(managedUsers: ManagedUser[]) {
-  const fullTimeSalaried = new Set(DEFAULT_FULL_TIME_SALARIED);
-  const fullTimeHourly = new Set(DEFAULT_FULL_TIME_HOURLY);
-  const partTimeHourly = new Set(DEFAULT_PART_TIME_HOURLY);
+  const fullTimeSalaried = new Set<string>(DEFAULT_FULL_TIME_SALARIED);
+  const fullTimeHourly = new Set<string>(DEFAULT_FULL_TIME_HOURLY);
+  const partTimeHourly = new Set<string>(DEFAULT_PART_TIME_HOURLY);
 
   for (const user of managedUsers) {
     const normalizedName = normalizeEmployeeName(user.name);

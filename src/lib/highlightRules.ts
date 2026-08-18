@@ -1,4 +1,16 @@
-import type { EmployeeCategory, ManagedUser, PivotData, PivotRow } from '../types';
+import type {
+  EmployeeCategory,
+  ManagedUser,
+  MentionUser,
+  PivotData,
+  PivotRow,
+} from '../types';
+import {
+  DEFAULT_FULL_TIME_HOURLY,
+  DEFAULT_FULL_TIME_SALARIED,
+  DEFAULT_PART_TIME_HOURLY,
+  normalizeEmployeeName,
+} from './employeeCategories';
 
 export type HighlightStatus = 'pending' | 'accepted' | 'deleted';
 
@@ -27,52 +39,40 @@ export interface HighlightProposal {
   status: HighlightStatus;
 }
 
-const DEFAULT_FULL_TIME_SALARIED = new Set([
-  'Joe Prevendar',
-  'Abdur Rehman',
-  'Eric Pieper',
-  'Chandler Hubbard',
-  'Aatir Siddiqui',
-  'Zulfi Aijaz',
-  'Aamir Ali',
-  'Muhammad Shaharyar',
-]);
-
-const DEFAULT_FULL_TIME_HOURLY = new Set([
-  'Justin Ray',
-  'Kathy',
-  'William Bill Dearsan',
-  'Ian Obermann',
-  'jose.bravo',
-  'Joni Pieper',
-  'joshua.pieper',
-]);
-
-const DEFAULT_PART_TIME_HOURLY = new Set([
-  'Aaron Nevarez',
-  'Ashraf Alkiesoum',
-  'Gary Bettencourt',
-  'Han Luu',
-  'Julian Sanchez',
-  'mee.vang',
-  'Tyler Smith',
-  'julian.diaz',
-  'luke.contreras',
-]);
-
-function normalizeEmployeeName(employeeName: string): string {
-  return employeeName.replace(/\s*\([^)]*\)\s*$/, '').trim();
-}
-
 function firstName(employeeName: string): string {
   const base = normalizeEmployeeName(employeeName);
   return base.split(/\s+/)[0] || base || 'Employee';
 }
 
+function mentionFirstNames(mentionUsers: MentionUser[]): string[] {
+  return mentionUsers
+    .map((user) => firstName(user.name))
+    .filter((name) => name.length > 0);
+}
+
+function mentionPrefix(mentionUsers: MentionUser[]): string {
+  const names = mentionFirstNames(mentionUsers);
+  if (names.length === 0) return '';
+  return `${names.join('/')}.... `;
+}
+
+function mentionGreetingRegex(mentionUsers: MentionUser[]): RegExp | null {
+  const names = mentionFirstNames(mentionUsers);
+  if (names.length === 0) return null;
+  const escaped = names
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('\\/');
+  return new RegExp(`^${escaped}\\s*\\.{0,6}\\s*`, 'i');
+}
+
+function withMentions(mentionUsers: MentionUser[], message: string): string {
+  return `${mentionPrefix(mentionUsers)}${message}`;
+}
+
 function buildCategorySets(managedUsers: ManagedUser[]) {
-  const fullTimeSalaried = new Set(DEFAULT_FULL_TIME_SALARIED);
-  const fullTimeHourly = new Set(DEFAULT_FULL_TIME_HOURLY);
-  const partTimeHourly = new Set(DEFAULT_PART_TIME_HOURLY);
+  const fullTimeSalaried = new Set<string>(DEFAULT_FULL_TIME_SALARIED);
+  const fullTimeHourly = new Set<string>(DEFAULT_FULL_TIME_HOURLY);
+  const partTimeHourly = new Set<string>(DEFAULT_PART_TIME_HOURLY);
 
   for (const user of managedUsers) {
     const normalizedName = normalizeEmployeeName(user.name);
@@ -477,6 +477,7 @@ function pushUnique(
 /** One review card per description row — combine multiple rule hits. */
 function mergeProposalsByRow(
   proposals: HighlightProposal[],
+  mentionUsers: MentionUser[],
 ): HighlightProposal[] {
   const groups = new Map<string, HighlightProposal[]>();
   for (const p of proposals) {
@@ -529,7 +530,7 @@ function mergeProposalsByRow(
         ruleId: 'future_billable',
         ruleLabel: RULE_LABELS.future_billable,
         triggerText: trigger,
-        comment: 'Abdur/Samir.... This will be future billable?',
+        comment: withMentions(mentionUsers, 'This will be future billable?'),
         status: 'pending',
       });
       continue;
@@ -538,13 +539,13 @@ function mergeProposalsByRow(
     const uniqueComments = [
       ...new Set(sorted.map((g) => g.comment.trim()).filter(Boolean)),
     ];
-    let hasAbdurSamirGreeting = false;
+    const greeting = mentionGreetingRegex(mentionUsers);
+    let hasMentionGreeting = false;
     const comments = uniqueComments
       .map((comment) => {
-        const greeting = /^Abdur\/Samir\s*\.{0,6}\s*/i;
-        if (!greeting.test(comment)) return comment;
-        if (!hasAbdurSamirGreeting) {
-          hasAbdurSamirGreeting = true;
+        if (!greeting || !greeting.test(comment)) return comment;
+        if (!hasMentionGreeting) {
+          hasMentionGreeting = true;
           return comment;
         }
         return comment.replace(greeting, '').trim();
@@ -653,6 +654,7 @@ const RULE_LABELS: Record<HighlightRuleId, string> = {
 export function proposeHighlights(
   pivot: PivotData,
   managedUsers: ManagedUser[] = [],
+  mentionUsers: MentionUser[] = [],
 ): HighlightProposal[] {
   const categorySets = buildCategorySets(managedUsers);
   const proposals: HighlightProposal[] = [];
@@ -726,7 +728,10 @@ export function proposeHighlights(
           projectLabel: currentProjectLabel,
           tag: currentTag,
           comment:
-            'Abdur/Samir... If miles are 0 then why it is mentioned? may be a typo?',
+            withMentions(
+              mentionUsers,
+              'If miles are 0 then why it is mentioned? may be a typo?',
+            ),
         });
       }
 
@@ -757,11 +762,20 @@ export function proposeHighlights(
       if (futureSentence) {
         let futureComment: string;
         if (proposalJobWalk) {
-          futureComment = 'Abdur/Samir.... This will be future billable?';
+          futureComment = withMentions(
+            mentionUsers,
+            'This will be future billable?',
+          );
         } else if (uncertainFutureSentence) {
-          futureComment = 'Abdur/Samir.... Kindly check this is future billable or not?';
+          futureComment = withMentions(
+            mentionUsers,
+            'Kindly check this is future billable or not?',
+          );
         } else {
-          futureComment = 'Abdur/Samir.... Move to future billable category? Take action as needed.';
+          futureComment = withMentions(
+            mentionUsers,
+            'Move to future billable category? Take action as needed.',
+          );
         }
         pushUnique(proposals, seen, {
           employeeName,
@@ -795,8 +809,10 @@ export function proposeHighlights(
           triggerText: openJobSentence,
           projectLabel: currentProjectLabel,
           tag: currentTag,
-          comment:
-            'Abdur/Samir.... Kindly shift this to specific job category, or create a job number and send to him',
+          comment: withMentions(
+            mentionUsers,
+            'Kindly shift this to specific job category, or create a job number and send to him',
+          ),
         });
       }
 
@@ -834,7 +850,7 @@ export function proposeHighlights(
           triggerText: billableSentence,
           projectLabel: currentProjectLabel,
           tag: currentTag,
-          comment: 'Abdur/Samir.... Billable?',
+          comment: withMentions(mentionUsers, 'Billable?'),
         });
       }
 
@@ -866,7 +882,7 @@ export function proposeHighlights(
           triggerText: codingSentence,
           projectLabel: currentProjectLabel,
           tag: currentTag,
-          comment: 'Abdur/Samir.... Charge to correct job?',
+          comment: withMentions(mentionUsers, 'Charge to correct job?'),
         });
       }
 
@@ -890,7 +906,10 @@ export function proposeHighlights(
             triggerText: desc.trim(),
             projectLabel: currentProjectLabel,
             tag: currentTag,
-            comment: `Abdur/Samir.... ${workedHolidayDates.join(', ')} was a federal holiday. Will the hours worked be added to Comp Time?`,
+            comment: withMentions(
+              mentionUsers,
+              `${workedHolidayDates.join(', ')} was a federal holiday. Will the hours worked be added to Comp Time?`,
+            ),
           });
         }
       }
@@ -911,7 +930,7 @@ export function proposeHighlights(
     }
   }
 
-  return mergeProposalsByRow(proposals);
+  return mergeProposalsByRow(proposals, mentionUsers);
 }
 
 export function groupProposalsByEmployee(
