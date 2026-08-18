@@ -18,6 +18,7 @@ export type HighlightRuleId =
   | 'missing_miles'
   | 'odd_miles'
   | 'miles_in_eps_admin_office_time'
+  | 'multiple_hour_values_split_entry'
   | 'billable_keyword'
   | 'open_job_keyword'
   | 'future_billable'
@@ -234,6 +235,14 @@ function hasMiles(description: string): boolean {
 
 function hasZeroMiles(description: string): boolean {
   return /\b0\s*miles?\b/i.test(description);
+}
+
+function hasMultipleHourValues(description: string): boolean {
+  // Matches: "1 hour", "2 hours", "2.5 hrs", "3 hr"
+  // Counts occurrences of time amounts in the description.
+  const hourRegex = /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\b/gi;
+  const matches = description.match(hourRegex);
+  return (matches?.length ?? 0) >= 2;
 }
 
 /** Personal / non-job trips — miles not required (e.g. restaurant, lunch). */
@@ -504,6 +513,7 @@ function mergeProposalsByRow(
     'future_billable',
     'wrong_coding',
     'billable_keyword',
+    'multiple_hour_values_split_entry',
     'missing_miles',
     'odd_miles',
     'miles_in_eps_admin_office_time',
@@ -658,6 +668,7 @@ const RULE_LABELS: Record<HighlightRuleId, string> = {
   missing_miles: 'Missing miles',
   odd_miles: 'Odd miles (0 miles)',
   miles_in_eps_admin_office_time: 'Miles in EPS Admin office time',
+  multiple_hour_values_split_entry: 'Multiple hour values in one entry',
   billable_keyword: 'Possible billable work',
   open_job_keyword: 'Open job / job number needed',
   future_billable: 'Future billable',
@@ -748,6 +759,23 @@ export function proposeHighlights(
               mentionUsers,
               'If miles are 0 then why it is mentioned? may be a typo?',
             ),
+        });
+      }
+
+      if (hasMultipleHourValues(desc)) {
+        const hoursSentence = sentenceContaining(desc, [
+          /\b\d+(?:\.\d+)?\s*(?:hours?|hrs?|hr)\b/i,
+        ]);
+
+        pushUnique(proposals, seen, {
+          employeeName,
+          ruleId: 'multiple_hour_values_split_entry',
+          ruleLabel: RULE_LABELS.multiple_hour_values_split_entry,
+          matchedText: desc,
+          triggerText: hoursSentence || desc.trim(),
+          projectLabel: currentProjectLabel,
+          tag: currentTag,
+          comment: withMentions(mentionUsers, 'May need to split this entry.'),
         });
       }
 
