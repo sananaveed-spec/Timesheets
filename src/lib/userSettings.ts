@@ -3,6 +3,8 @@ import { mergeDefaultManagedUsers } from './employeeCategories';
 
 const STORAGE_KEY = 'clockify-converter-managed-users';
 const MENTION_STORAGE_KEY = 'clockify-converter-mention-users';
+const DEFAULTS_MERGED_KEY =
+  'clockify-converter-managed-users-defaults-merged-v1';
 
 function readStoredList<T>(key: string): T[] {
   if (typeof window === 'undefined') return [];
@@ -26,8 +28,17 @@ export function loadManagedUsers(): ManagedUser[] {
       typeof user?.category === 'string',
   );
 
-  if (stored.length > 0) return stored;
-  return mergeDefaultManagedUsers([]);
+  if (typeof window === 'undefined') {
+    return mergeDefaultManagedUsers(stored);
+  }
+
+  const alreadyMerged = window.localStorage.getItem(DEFAULTS_MERGED_KEY) === '1';
+  if (alreadyMerged && stored.length > 0) return stored;
+
+  const seeded = mergeDefaultManagedUsers(stored);
+  window.localStorage.setItem(DEFAULTS_MERGED_KEY, '1');
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(seeded));
+  return seeded;
 }
 
 export function saveManagedUsers(users: ManagedUser[]): void {

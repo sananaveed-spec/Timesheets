@@ -55,9 +55,7 @@ function AppContent() {
   );
 
   useEffect(() => {
-    setManagedUsers((currentUsers) =>
-      currentUsers.length > 0 ? currentUsers : loadManagedUsers(),
-    );
+    setManagedUsers(loadManagedUsers());
   }, []);
 
   useEffect(() => {
