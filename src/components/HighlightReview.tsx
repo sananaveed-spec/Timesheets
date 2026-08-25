@@ -187,11 +187,9 @@ export function HighlightReview({
                       {item.triggerText || item.matchedText}
                     </span>
                   </p>
-                  <p className="mt-1 text-sm text-gray-800">
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-gray-800">
                     <span className="font-medium">Matched text: </span>
-                    {item.matchedText.length > 220
-                      ? `${item.matchedText.slice(0, 220)}…`
-                      : item.matchedText}
+                    {item.matchedText}
                   </p>
                   <p className="mt-2 rounded bg-red-50 px-2 py-1.5 text-sm text-red-800">
                     <span className="font-medium">Comment: </span>

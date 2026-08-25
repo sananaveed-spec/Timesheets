@@ -33,10 +33,14 @@ export interface PivotRow {
 }
 
 export interface PivotData {
+  /** Date columns shown in the detail pivot (days with hours). */
   dates: string[];
   dateLabels: string[];
   rows: PivotRow[];
   reportTitle: string;
+  /** Selected report range for SUMMARY "Time period" (may include empty days). */
+  periodStart?: string;
+  periodEnd?: string;
 }
 
 export type EmployeeCategory =

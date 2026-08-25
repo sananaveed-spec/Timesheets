@@ -78,7 +78,10 @@ function AppContent() {
         (result) => {
           setLoading(false);
           if (result.success) {
-            const nextPivot = transformToPivot(result.data);
+            const nextPivot = transformToPivot(result.data, {
+              startDate,
+              endDate,
+            });
             setPivot(nextPivot);
             setSourceLabel(result.label);
             setHighlightProposals(

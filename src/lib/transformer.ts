@@ -56,6 +56,42 @@ function getLastDayOfMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
 }
 
+function toDateKey(d: Date): string {
+  const m = (d.getMonth() + 1).toString().padStart(2, '0');
+  const day = d.getDate().toString().padStart(2, '0');
+  const y = d.getFullYear();
+  return `${m}/${day}/${y}`;
+}
+
+/** Accepts ISO `YYYY-MM-DD` or `M/D/YYYY` and returns a local Date at midnight. */
+function parseFlexibleDate(dateStr: string): Date | null {
+  const trimmed = dateStr.trim();
+  if (!trimmed) return null;
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmed);
+  if (iso) {
+    const year = parseInt(iso[1], 10);
+    const month = parseInt(iso[2], 10);
+    const day = parseInt(iso[3], 10);
+    const d = new Date(year, month - 1, day);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return parseDate(trimmed);
+}
+
+function getDatesInRange(startDate: string, endDate: string): string[] | null {
+  const start = parseFlexibleDate(startDate);
+  const end = parseFlexibleDate(endDate);
+  if (!start || !end || start.getTime() > end.getTime()) return null;
+  const dates: string[] = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endTime = end.getTime();
+  while (cursor.getTime() <= endTime) {
+    dates.push(toDateKey(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return dates;
+}
+
 function getUniqueDatesFromCsv(rows: ClockifyRow[]): string[] {
   const seen = new Set<string>();
   for (const row of rows) {
@@ -79,9 +115,28 @@ function getUniqueDatesFromCsv(rows: ClockifyRow[]): string[] {
   return fallback;
 }
 
-export function transformToPivot(rows: ClockifyRow[]): PivotData {
+export type TransformDateRange = {
+  startDate: string;
+  endDate: string;
+};
+
+export function transformToPivot(
+  rows: ClockifyRow[],
+  dateRange?: TransformDateRange,
+): PivotData {
+  // Detail table columns: only days that have time entries.
   const dates = getUniqueDatesFromCsv(rows);
   const dateLabels = dates.map(formatDateLabel);
+
+  const rangeDates = dateRange
+    ? getDatesInRange(dateRange.startDate, dateRange.endDate)
+    : null;
+  const periodStart =
+    rangeDates && rangeDates.length > 0 ? rangeDates[0] : dates[0];
+  const periodEnd =
+    rangeDates && rangeDates.length > 0
+      ? rangeDates[rangeDates.length - 1]
+      : dates[dates.length - 1];
 
   const pivotRows: PivotRow[] = [];
 
@@ -203,5 +258,7 @@ export function transformToPivot(rows: ClockifyRow[]): PivotData {
     dateLabels,
     rows: pivotRows,
     reportTitle,
+    periodStart,
+    periodEnd,
   };
 }

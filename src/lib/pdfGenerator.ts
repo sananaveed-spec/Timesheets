@@ -618,7 +618,9 @@ function drawReportCardPage(
   reportCard: ReportCard,
   logo: { dataUrl: string; width: number; height: number } | null,
   dates: string[],
-  categorySets: ReturnType<typeof buildCategorySets>
+  categorySets: ReturnType<typeof buildCategorySets>,
+  periodStart?: string,
+  periodEnd?: string,
 ): void {
   const pageWidth = doc.internal.pageSize.getWidth();
 
@@ -665,9 +667,12 @@ function drawReportCardPage(
     ? 'None'
     : `${reportCard.reviewNeeded.length} entry(ies) - miles missing for travel/on-site`;
 
-  const timePeriodValue = dates.length > 0
-    ? `${formatDateForTimePeriod(dates[0])} to ${formatDateForTimePeriod(dates[dates.length - 1])}`
-    : '-';
+  const periodFrom = periodStart || dates[0];
+  const periodTo = periodEnd || dates[dates.length - 1];
+  const timePeriodValue =
+    periodFrom && periodTo
+      ? `${formatDateForTimePeriod(periodFrom)} to ${formatDateForTimePeriod(periodTo)}`
+      : '-';
 
   const tableData: [string, string][] = [['Time period', timePeriodValue]];
   if (isPartTimeHourly(employeeName, categorySets)) {
@@ -1061,7 +1066,16 @@ export async function generatePdfsZip(
     const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
     const reportCard = computeReportCard(sectionRows, dates, name, categorySets);
     const reportTitle = buildReportTitle(pivot, revNumber);
-    drawReportCardPage(doc, name, reportCard, logo, dates, categorySets);
+    drawReportCardPage(
+      doc,
+      name,
+      reportCard,
+      logo,
+      dates,
+      categorySets,
+      pivot.periodStart,
+      pivot.periodEnd,
+    );
 
     const employeeHighlights = acceptedHighlights.filter(
       (h) => h.employeeName === name && h.status === 'accepted',
